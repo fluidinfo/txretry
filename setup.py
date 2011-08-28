@@ -9,12 +9,12 @@ def read(fname):
     return open(os.path.join(os.path.dirname(__file__), fname)).read()
 
 d = dict(name='txretry',
-         version='0.0.1',
+         version='0.0.2',
          provides=['txretry'],
          maintainer='Fluidinfo Inc.',
          maintainer_email='info@fluidinfo.com',
-         url='https://launchpad.net/txrdq',
-         download_url='https://code.launchpad.net/txrdq',
+         url='https://github.com/fluidinfo/txretry',
+         download_url='https://github.com/fluidinfo/txretry',
          packages=['txretry', 'txretry.test'],
          keywords=['twisted function retry'],
          classifiers=[
