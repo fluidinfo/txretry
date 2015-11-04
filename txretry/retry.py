@@ -55,7 +55,7 @@ def simpleBackoffIterator(maxResults=10, maxDelay=120.0, now=True,
 
 class RetryingCall(object):
     """
-    Calls a function repeatedly, passing it args and kw args. Failures are
+    Calls a function repeatedly, passing it *args. Failures are
     passed to a user-supplied failure testing function. If the failure is
     ignored, the function is called again after a delay whose duration is
     obtained from a user-supplied iterator. The start method (below)
@@ -67,14 +67,15 @@ class RetryingCall(object):
     @ival failures: a list of failures received in calling the function.
     @param func: The function to call.
     @param args: Positional arguments to pass to the function.
-    @param kw: Keyword arguments to pass to the function.
+    @param verbose: Whether to log failures.
     """
     def __init__(self, func, *args, **kw):
         self._func = func
         self._args = args
-        self._kw = kw
         self._start = time.time()
         self.failures = []
+        self._verbose = kw.get("verbose", True)
+        self._delay_deferred = None
 
     def _err(self, fail):
         """An errback function for the function call.
@@ -86,7 +87,7 @@ class RetryingCall(object):
         self.failures.append(fail)
         try:
             result = self._failureTester(fail)
-        except:
+        except Exception:
             self._deferred.errback()
         else:
             if isinstance(result, failure.Failure):
@@ -95,7 +96,8 @@ class RetryingCall(object):
                 self._deferred.errback(result)
             else:
                 # Schedule another call.
-                log.msg('RetryingCall: Ignoring failure %s' % (fail,))
+                if self._verbose:
+                    log.err(fail, 'RetryingCall: attempt {} failed'.format(len(self.failures)))
                 self._call()
 
     def _call(self):
@@ -105,12 +107,13 @@ class RetryingCall(object):
         try:
             delay = self._backoffIterator.next()
         except StopIteration:
-            log.msg('StopIteration in RetryingCall: ran out of attempts.')
+            if self._verbose:
+                log.msg('RetryingCall: ran out of attempts.')
             self._deferred.errback(self.failures[0] if self.failures else None)
         else:
-            d = task.deferLater(reactor, delay,
-                                self._func, *self._args, **self._kw)
-            d.addCallbacks(self._deferred.callback, self._err)
+            self._delay_deferred = task.deferLater(reactor, delay,
+                                self._func, *self._args)
+            self._delay_deferred.addCallbacks(self._deferred.callback, self._err)
 
     def start(self, backoffIterator=None, failureTester=None):
         """
@@ -123,12 +126,18 @@ class RetryingCall(object):
             argument (a C{failure.Failure}) that we can use to check
             whether a failed call should be retried.
         @return: a C{Deferred} that will fire with the result of calling
-            self._func with self._args and self._kw as arguments, or fail
-            with the first failure encountered.
+            self._func with self._args as arguments, or fail with the
+            first failure encountered.
         """
         self._backoffIterator = iter(backoffIterator or
                                      simpleBackoffIterator())
         self._failureTester = failureTester or (lambda _: None)
-        self._deferred = defer.Deferred()
+
+        def cancel(_d):
+            if self._delay_deferred:
+                self._delay_deferred.cancel()
+        self._deferred = defer.Deferred(cancel)
+
         self._call()
         return self._deferred
+
